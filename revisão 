@@ -1,0 +1,348 @@
+Vamos criar um projeto completo que abrange todos os tópicos mencionados, desde a criação de uma API mínima com ASP.NET Core usando Entity Framework Core (SQLite) até a integração com um frontend React. Vou guiar você passo a passo por todo o processo.
+
+### 1. Criando a API com ASP.NET Core
+
+#### Criando o projeto de API
+
+```bash
+dotnet new webapi -n MinhaApi
+cd MinhaApi
+```
+
+#### Instalando pacotes necessários
+
+```bash
+dotnet add package Microsoft.EntityFrameworkCore.SQLite
+dotnet add package Microsoft.EntityFrameworkCore.Design
+```
+
+#### Definindo o modelo de dados
+
+Vamos criar um modelo simples para produtos e categorias, com um relacionamento um-para-muitos.
+
+##### `Models/Produto.cs`
+
+```csharp
+using System.ComponentModel.DataAnnotations;
+
+namespace MinhaApi.Models
+{
+    public class Produto
+    {
+        public int Id { get; set; }
+
+        [Required]
+        public string Nome { get; set; }
+
+        public decimal Preco { get; set; }
+
+        // Foreign Key
+        public int CategoriaId { get; set; }
+
+        // Navigation property
+        public Categoria Categoria { get; set; }
+    }
+}
+```
+
+##### `Models/Categoria.cs`
+
+```csharp
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+
+namespace MinhaApi.Models
+{
+    public class Categoria
+    {
+        public int Id { get; set; }
+
+        [Required]
+        public string Nome { get; set; }
+
+        // Navigation property
+        public List<Produto> Produtos { get; set; }
+    }
+}
+```
+
+#### Configurando o contexto do banco de dados
+
+Vamos configurar o contexto do banco de dados usando o Entity Framework Core.
+
+##### `Data/AppDbContext.cs`
+
+```csharp
+using Microsoft.EntityFrameworkCore;
+using MinhaApi.Models;
+
+namespace MinhaApi.Data
+{
+    public class AppDbContext : DbContext
+    {
+        public DbSet<Produto> Produtos { get; set; }
+        public DbSet<Categoria> Categorias { get; set; }
+
+        public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
+        {
+        }
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<Produto>()
+                .HasOne(p => p.Categoria)
+                .WithMany(c => c.Produtos)
+                .HasForeignKey(p => p.CategoriaId);
+        }
+    }
+}
+```
+
+#### Configurando a injeção de dependência
+
+##### `Startup.cs`
+
+```csharp
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.EntityFrameworkCore;
+using MinhaApi.Data;
+
+namespace MinhaApi
+{
+    public class Startup
+    {
+        public IConfiguration Configuration { get; }
+
+        public Startup(IConfiguration configuration)
+        {
+            Configuration = configuration;
+        }
+
+        public void ConfigureServices(IServiceCollection services)
+        {
+            services.AddDbContext<AppDbContext>(options =>
+                options.UseSqlite(Configuration.GetConnectionString("DefaultConnection")));
+
+            services.AddControllers();
+        }
+
+        public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+        {
+            if (env.IsDevelopment())
+            {
+                app.UseDeveloperExceptionPage();
+            }
+
+            app.UseRouting();
+
+            app.UseEndpoints(endpoints =>
+            {
+                endpoints.MapControllers();
+            });
+        }
+    }
+}
+```
+
+#### Criando os endpoints da API
+
+##### `Controllers/ProdutoController.cs`
+
+```csharp
+using System.Collections.Generic;
+using System.Linq;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using MinhaApi.Data;
+using MinhaApi.Models;
+
+namespace MinhaApi.Controllers
+{
+    [ApiController]
+    [Route("api/produtos")]
+    public class ProdutoController : ControllerBase
+    {
+        private readonly AppDbContext _context;
+
+        public ProdutoController(AppDbContext context)
+        {
+            _context = context;
+        }
+
+        // GET: api/produtos
+        [HttpGet]
+        public ActionResult<IEnumerable<Produto>> GetProdutos()
+        {
+            return _context.Produtos.Include(p => p.Categoria).ToList();
+        }
+
+        // GET: api/produtos/5
+        [HttpGet("{id}")]
+        public ActionResult<Produto> GetProduto(int id)
+        {
+            var produto = _context.Produtos.Include(p => p.Categoria).FirstOrDefault(p => p.Id == id);
+
+            if (produto == null)
+            {
+                return NotFound();
+            }
+
+            return produto;
+        }
+
+        // POST: api/produtos
+        [HttpPost]
+        public ActionResult<Produto> PostProduto(Produto produto)
+        {
+            _context.Produtos.Add(produto);
+            _context.SaveChanges();
+
+            return CreatedAtAction(nameof(GetProduto), new { id = produto.Id }, produto);
+        }
+
+        // PUT: api/produtos/5
+        [HttpPut("{id}")]
+        public IActionResult PutProduto(int id, Produto produto)
+        {
+            if (id != produto.Id)
+            {
+                return BadRequest();
+            }
+
+            _context.Entry(produto).State = EntityState.Modified;
+            _context.SaveChanges();
+
+            return NoContent();
+        }
+
+        // DELETE: api/produtos/5
+        [HttpDelete("{id}")]
+        public IActionResult DeleteProduto(int id)
+        {
+            var produto = _context.Produtos.Find(id);
+
+            if (produto == null)
+            {
+                return NotFound();
+            }
+
+            _context.Produtos.Remove(produto);
+            _context.SaveChanges();
+
+            return NoContent();
+        }
+    }
+}
+```
+
+### 2. Configurando o Frontend com React
+
+#### Criando o projeto React
+
+```bash
+npx create-react-app minha-app-react
+cd minha-app-react
+```
+
+#### Instalando Axios para requisições HTTP
+
+```bash
+npm install axios
+```
+
+#### Integrando com a API
+
+##### `src/App.js`
+
+```jsx
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+
+function App() {
+  const [produtos, setProdutos] = useState([]);
+  const [nomeProduto, setNomeProduto] = useState('');
+  const [precoProduto, setPrecoProduto] = useState('');
+  const [categorias, setCategorias] = useState([]);
+
+  useEffect(() => {
+    fetchProdutos();
+    fetchCategorias();
+  }, []);
+
+  const fetchProdutos = async () => {
+    const response = await axios.get('https://localhost:5001/api/produtos');
+    setProdutos(response.data);
+  };
+
+  const fetchCategorias = async () => {
+    const response = await axios.get('https://localhost:5001/api/categorias');
+    setCategorias(response.data);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    await axios.post('https://localhost:5001/api/produtos', {
+      nome: nomeProduto,
+      preco: precoProduto,
+      categoriaId: 1, // Aqui você deve ajustar conforme suas categorias
+    });
+    setNomeProduto('');
+    setPrecoProduto('');
+    fetchProdutos();
+  };
+
+  const handleDelete = async (id) => {
+    await axios.delete(`https://localhost:5001/api/produtos/${id}`);
+    fetchProdutos();
+  };
+
+  return (
+    <div>
+      <h1>Produtos</h1>
+      <form onSubmit={handleSubmit}>
+        <label>
+          Nome:
+          <input type="text" value={nomeProduto} onChange={(e) => setNomeProduto(e.target.value)} />
+        </label>
+        <label>
+          Preço:
+          <input type="text" value={precoProduto} onChange={(e) => setPrecoProduto(e.target.value)} />
+        </label>
+        <label>
+          Categoria:
+          <select>
+            {categorias.map(categoria => (
+              <option key={categoria.id} value={categoria.id}>{categoria.nome}</option>
+            ))}
+          </select>
+        </label>
+        <button type="submit">Adicionar Produto</button>
+      </form>
+      <ul>
+        {produtos.map((produto) => (
+          <li key={produto.id}>
+            {produto.nome} - R$ {produto.preco}
+            <button onClick={() => handleDelete(produto.id)}>Excluir</button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+export default App;
+```
+
+### Executando a Aplicação
+
+1. **API ASP.NET Core:**
+   - No terminal, vá para a pasta `MinhaApi` e execute `dotnet run` para iniciar a API.
+
+2. **Aplicativo React:**
+   - Em outra janela do terminal, vá para a pasta `minha-app-react` e execute `npm start` para iniciar o aplicativo React.
+
+Certifique-se de ajustar as URLs da API conforme necessário para corresponder à porta e ao ambiente em que sua API está sendo executada. Este exemplo cobre a criação de uma API completa com operações CRUD, incluindo relacionamentos entre entidades, e integração com um frontend React para exibição e manipulação de dados.
